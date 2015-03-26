@@ -1,0 +1,239 @@
+<?php
+/**
+* Replicate entities that are the target of entityreference fields
+*
+* Implements hook_replicate_field_FIELD_TYPE
+*
+* For entites that have one or more entity reference fields we need to replicate the
+* referenced entities as well so the cloned parents don't all point to the same children.
+* We also need to update the entityreference fields to point to them.
+*
+* @param object $replica
+*   Reference to the fully loaded entity object being saved (the clone) that
+*   can be altered as needed.
+* @param string $entity_type
+*   Type of the entity containing the field.
+* @param string $field_name
+*   Name of the field that is going to be processed.
+*
+* @see replicate_clone_entity()
+*/
+function hp_translation_replicate_field_entityreference(&$replica, $entity_type, $field_name)
+{
+// Only replicate entity reference field you are interested in
+//Set up array of homepage ref fields to replicate
+    $to_replicate = array('field_solutions_blocks', 'field_events', 'field_community_blocks', 'field_columns_content',
+        'field_testimonials', 'field_featurettes', 'field_screenshots', 'field_how_it_works', 'field_detail_sections',
+        'field_comparison_rows', 'field_loadrunner_screenshots', 'field_loadrunner_testimonials', 'field_lr_columns_content',
+        'field_pricing_blocks', 'field_pricing_faq', 'field_products', 'field_q_a');
+
+    if (in_array($field_name, $to_replicate)) {
+// Wrap the replicated entity.
+        $wrapper = entity_metadata_wrapper($entity_type, $replica);
+// Loop over the field values
+        foreach ($wrapper->$field_name as $delta => $referenced_field_item_wrapper) {
+            $referenced_entity = $referenced_field_item_wrapper->value();
+// Replicate the referenced entity and get the new id
+            $replicated_referenced_entity_id = replicate_entity('node', $referenced_entity);
+// Give the replica reference field the new target id
+            $replica->{$field_name}[LANGUAGE_NONE][$delta]['target_id'] = $replicated_referenced_entity_id;
+        }
+    }
+}
+
+
+/**
+* Implements hook_field_attach_prepare_translation_alter().
+*
+* Loops over all available fields on the to-be-translated entity
+* and finds entity_reference fields.
+* If found, adds a reference to the translated entity, or creates a new translated reference if not.
+*/
+function hp_translation_field_attach_prepare_translation_alter(&$entity, $context) {
+    #die("Made it to the translation prepare");
+    $entity_type = $context['entity_type'];
+    $source_entity = $context['source_entity'];
+    #dsm($entity);
+    #dsm($context);
+
+    $options = array(
+    'default' => FALSE,
+    'deleted' => FALSE,
+    'language' => NULL,
+    );
+
+    // Determine the list of instances to iterate on.
+    list(, , $bundle) = entity_extract_ids($entity_type, $source_entity);
+    $instances = _field_invoke_get_instances($entity_type, $bundle, $options);
+
+    if (!empty($instances)) {
+        foreach($instances as $field_info) {
+        $field = field_info_field($field_info['field_name']);
+            if ($field['type'] == 'entityreference' && isset($entity->{$field_info['field_name']})) {
+                // iterate over languages.
+                foreach($entity->{$field_info['field_name']} as $language => &$items) {
+                    foreach ($items as $index => $item) {
+                        // @TODO: support more than nodes?
+                        //dsm($item);
+                        //if ($item['target_type'] == "node") {
+                            if ($reference_node = node_load($item['target_id'])) {
+                            $new_nid = hp_translation_node_reference_translate_field($reference_node, $context['langcode'],$reference_node->nid );
+                            $entity->{$field_info['field_name']}[$language][$index]['target_id'] = $new_nid;
+                            }
+                        // }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+* Helper function for translating node entity_reference field.
+*
+* We try to use node translations for reference, otherwise create a new translation for that reference and use the new
+* nid
+*/
+function hp_translation_node_reference_translate_field($reference_node, $langcode, $tnid)
+{
+
+    if (isset($reference_node->tnid) && translation_supported_type($reference_node->type)) {
+        // This content type has translations, find the one.
+        if (($reference_trans = translation_node_get_translations($reference_node->tnid)) && isset($reference_trans[$langcode])) {
+            return $reference_trans[$langcode]->nid;
+        } //this content does not have translations, create the one we need and return it
+        else {
+            $node = new stdClass();
+            $node->type = $reference_node->type;
+            node_object_prepare($node);
+            #set up basics of the new node
+            $node->title = $reference_node->title;
+            $node->status = $reference_node->status;
+            $node->language = $langcode;
+
+
+            #fill all your custom fields from origin node
+            foreach ($reference_node as $key => $value) {
+                #check for all field instances from origin node
+                if (preg_match("/^field_/", $key) || $key == 'body') {
+                    $node->$key = $value;
+                }
+            }
+            #set origin node as the source of this translation
+            $node->tnid = $tnid;
+            $node->translation_source = node_load($tnid);
+            node_save($node);
+        }
+    }
+    #return the newly created translation
+    #dsm("Just created ".$node->nid.":".$node->title." with parent ".$node->tnid);
+
+    return $node->nid;
+}
+
+
+
+/**
+ * Implements hook_node_form_alter()
+ */
+function hp_translation_form_node_form_alter(&$form, $form_state) {
+
+
+}
+
+function hp_translation_node_submit($node, $form, &$form_state){
+
+
+    if($node->translation_source->nid){
+        $path = drupal_get_path_alias('node/'.$node->translation_source->nid);
+        $node->path['alias'] = $path;
+        $node->path['pathauto'] = 0;
+
+    }
+
+
+
+}
+
+/**
+ * Implements hook_workbench_access_node_element_alter to set default access value
+ * for nodes being translated
+ */
+function hp_translation_workbench_access_node_element_alter(&$element, $form_state, $active) {
+
+    if(isset($element) && $_REQUEST['translation']){
+        $source_node = node_load($_REQUEST['translation']);
+        $element['#default_value'] = $source_node->workbench_access;
+    }
+
+}
+
+
+/**
+ * Implements hook_language_switch_links_alter().
+ *
+ * We need to implement this function so we can override it and make sure if language does not exist we go to fallback.
+ *
+ * @param array $links
+ * @param $type
+ * @param $path
+ */
+function hp_translation_language_switch_links_alter(array &$links, $type, $path) {
+    $language_type = variable_get('translation_language_type', LANGUAGE_TYPE_INTERFACE);
+
+    if ($type == $language_type && preg_match("!^node/(\d+)(/.+|)!", $path, $matches)) {
+        $node = node_load((int) $matches[1]);
+
+        if (empty($node->tnid)) {
+            // If the node cannot be found nothing needs to be done. If it does not
+            // have translations it might be a language neutral node, in which case we
+            // must leave the language switch links unaltered. This is true also for
+            // nodes not having translation support enabled.
+            if (empty($node) || entity_language('node', $node) == LANGUAGE_NONE || !translation_supported_type($node->type)) {
+                return;
+            }
+            $langcode = entity_language('node', $node);
+            $translations = array($langcode => $node);
+        }
+        else {
+            $translations = translation_node_get_translations($node->tnid);
+        }
+
+        foreach ($links as $langcode => $link) {
+            if (isset($translations[$langcode]) && $translations[$langcode]->status) {
+                // Translation in a different node.
+                $links[$langcode]['href'] = 'node/' . $translations[$langcode]->nid . $matches[2];
+            }
+            else {
+                // No translation in this language, or no permission to view.
+                //unset($links[$langcode]['href']);
+                //$links[$langcode]['attributes']['class'][] = 'locale-untranslated';
+
+                $links[$langcode]['href'] = 'node/' . $node->nid . $matches[2];
+                $remove = array('locale-untranslated');
+                $links[$langcode]['attributes']['class'] = array_diff($links[$langcode]['attributes']['class'], $remove);
+            }
+        }
+    }
+}
+
+/**
+ * Implements hook_module_implements_alter().
+ *
+ * We need to make sure we place our module at the very bottom of the implementation array so we make the final call.
+ *
+ * @see hp_translation_language_switch_links_alter()
+ *
+ * @param $implementations
+ * @param $hook
+ */
+function hp_translation_module_implements_alter(&$implementations, $hook) {
+    if ($hook == 'language_switch_links_alter') {
+        $group = $implementations['hp_translation'];
+        unset($implementations['hp_translation']);
+        $implementations['hp_translation'] = $group;
+
+    }
+}
+
+

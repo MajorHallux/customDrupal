@@ -1,0 +1,44 @@
+<?php
+/**
+ * @file
+ * Code for the HP Localization feature.
+ */
+
+include_once 'hp_localization.features.inc';
+/**
+ * Set up language Hierarchy using hook_post_features_revert
+ * After reverting the language feature, make sure the hierarchy exists.
+ */
+function hp_localization_post_features_revert($component) {
+
+    if($component){
+        // UPDATE languages to have the correct parent languages
+
+        $es_updated = db_update('languages') // Table name no longer needs {}
+            ->fields(array(
+                'parent' => 'es',
+            ))
+            ->condition('language', 'es-mx')
+            ->execute();
+        $pt_updated = db_update('languages') // Table name no longer needs {}
+            ->fields(array(
+                'parent' => 'pt-pt',
+            ))
+            ->condition('language', 'pt-br')
+            ->execute();
+        $fr_updated = db_update('languages') // Table name no longer needs {}
+            ->fields(array(
+                'parent' => 'fr',
+            ))
+            ->condition('language', 'fr-ca')
+            ->execute();
+
+        $update_all = db_update('languages') // Table name no longer needs {}
+            ->fields(array(
+                'parent' => 'en',
+            ))
+            ->condition('parent', NULL)
+            ->condition('language','en','!=')
+            ->execute();
+    }
+}

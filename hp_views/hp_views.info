@@ -1,0 +1,16 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: seanschoolcraft
+ * Date: 2/23/15
+ * Time: 2:46 PM
+ */
+
+ name = HP Views
+ description = Management for all code defined views/defaults
+ core = 7.x
+ package = HP
+ version = 7.x-1.0
+ dependencies[] = entity
+ dependencies[] = views
+ dependencies[] = pronq_update

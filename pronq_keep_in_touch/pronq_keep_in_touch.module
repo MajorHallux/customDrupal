@@ -1,0 +1,80 @@
+<?php
+
+function pronq_keep_in_touch_block_info() {
+    $blocks['keep_in_touch'] = array(
+        'info' => t('Keep in touch block'),
+        'status' => TRUE,
+        'region' => 'content',
+        'visibility' => BLOCK_VISIBILITY_LISTED,
+        'pages' => "products\n<front>",
+        'weight' => 5
+    );
+
+    return $blocks;
+}
+
+function pronq_keep_in_touch_block_view($delta = '') {
+    global $language;
+    switch ($delta) {
+        case 'keep_in_touch':
+            // Add the css/js required for this block
+            drupal_add_css(drupal_get_path('module', 'pronq_keep_in_touch')."/emailblock.css", array('group' => CSS_THEME, 'weight' => 100));
+            drupal_add_js(drupal_get_path('module', 'pronq_keep_in_touch')."/emailblock.js", array('group' => JS_THEME, 'weight' => 100));
+            
+            // Find custom email strings from the homepage node
+            $query = new EntityFieldQuery();
+            $entities = $query->entityCondition('entity_type', 'node')
+            ->propertyCondition('type', 'home_page')
+            ->propertyCondition('status', 1)
+            ->propertyCondition('language', $language->language)
+            ->range(0,1)
+            ->execute();
+            
+            if(count($entities)==0) {
+                $home = node_load(225);
+            } else $home = node_load(array_pop($entities["node"])->nid);
+            
+            
+            $block_vars = array(
+                "email_empty"   => field_get_items('node', $home, 'field_email_empty'),
+                "email_invalid" => field_get_items('node', $home, 'field_email_invalid'),
+                "email_thanks"  => field_get_items('node', $home, 'field_email_thanks'),
+                "email_header"  => field_get_items('node', $home, 'field_email_header'),
+                "email_details" => field_get_items('node', $home, 'field_email_details'),
+                "email_cta"     => field_get_items('node', $home, 'field_email_cta')
+            );
+            
+            $defaults = array(
+                "email_empty"   => "Hmm... please check your email address.",
+                "email_invalid" => "Hmm... please check your email address.",
+                "email_thanks"  => "Thanks for signing up for our newsletter. We&#039;ll stay in touch!",
+                "email_header"  => "Keep in touch",
+                "email_details" => "Stay up-to-date with news on our products, releases, and announcements.",
+                "email_cta"     => "Submit",
+            );
+            
+            foreach($block_vars as $k=>$v) {
+                if(count($v)==0 || !isset($v[0]["value"]) || $v[0]["value"]=="" ) {
+                    $block_vars[$k]=$defaults[$k];
+                } else {
+                    $block_vars[$k]=htmlentities($v[0]["value"], ENT_QUOTES);
+                }
+            }
+            
+            $block_vars["submit_url"] = variable_get('homepage_email_submit');
+            
+            $block['subject'] = $block_vars["email_header"];
+            $block['content'] = theme('emailblock', $block_vars);
+            
+            break;
+    }
+    return $block;
+}
+
+function pronq_keep_in_touch_theme() {
+    $items['emailblock'] = array(
+            'template' => 'emailblock',
+            'render element' => 'content'
+    );
+    return $items;
+}

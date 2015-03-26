@@ -1,0 +1,85 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: seanschoolcraft
+ * Date: 6/10/14
+ * Time: 4:17 PM
+ */
+function pronq_moderation_schema() {
+    $schema['node_moderation_emails'] = array(
+
+        'description' => 'Table to hold email recipient values for moderation transitions',
+        'fields' => array(
+            'id' => array(
+                'description' => 'The primary identifier for a record.',
+                'type' => 'serial',
+                'unsigned' => TRUE,
+                'not null' => TRUE,
+            ),
+            'nid' => array(
+                'description' => 'The primary identifier for a node.',
+                'type' => 'int',
+                'unsigned' => TRUE,
+                'not null' => TRUE,
+            ),
+
+            'data' => array(
+                'description' => 'The email address(es) to me notified when this transition type happens for the node.',
+                'type' => 'blob',
+                'not null' => TRUE,
+
+            ),
+        ),
+        'indexes' => array(
+            'nid_ref'        => array('nid'),
+
+
+        ),
+        'unique keys' => array(
+            'nid' => array('nid'),
+
+        ),
+        'foreign keys' => array(
+            'node' => array(
+                'table' => 'node',
+                'columns' => array('nid' => 'nid'),
+            ),
+
+        ),
+        'primary key' => array('id'),
+    );
+
+    return $schema;
+}
+/**
+ * Remove legacy un-needed states
+ * Rename Content Manager to Content Approver
+ */
+function pronq_moderation_update_7101(&$sandbox) {
+
+    //remove unneeded moderation states
+
+    $num_deleted = db_delete('workbench_moderation_states')
+        ->condition('name', "pm_approved_")
+        ->execute();
+    $num_deleted = db_delete('workbench_moderation_states')
+        ->condition('name', "approved_for_publish")
+        ->execute();
+
+    #rename the Product Manager role to Product Approver
+    $num_updated = db_update('role') // Table name no longer needs {}
+        ->fields(array(
+            'name' => "Product Content Approver",
+        ))
+        ->condition('rid', 6, '=')
+        ->execute();
+}
+
+/**
+ * Install cache actions module
+ */
+function pronq_moderation_update_7102(&$sandbox){
+    $enable = array('cache_actions');
+    module_enable($enable,TRUE);
+}
+

@@ -1,0 +1,12 @@
+name = HP Translation Support
+core = 7.x
+package = HP Editorial/Moderation
+version = 7.x-1.1
+project = hp_translation
+dependencies[] = ctools
+dependencies[] = i18n
+dependencies[] = i18n_translation
+dependencies[] = i18n_variable
+dependencies[] = language_cookie
+dependencies[] = locale
+dependencies[] = menu

@@ -1,0 +1,425 @@
+<?php
+
+/**
+ * Implements hook_theme().
+ */
+function pronq_header_footer_theme() {
+  return array(
+    'pronq_header_footer_tree' => array(
+      'variables' => array(
+        'menu_name' => NULL,
+        'mlid' => NULL,
+        'depth' => -1,
+        'menu' => NULL,
+        'respect_expanded' => 0,
+      ),
+      'file' => 'pronq_header_footer.theme.inc',
+    ),
+    'pronq_header_footer_build' => array(
+      'variables' => array(
+        'menu' => NULL,
+        'depth' => -1,
+        'trail' => NULL,
+        'respect_expanded' => 0,
+      ),
+      'file' => 'pronq_header_footer.theme.inc',
+    ),
+    'pronq_header_footer' => array(
+      'variables' => array(
+        'id' => NULL,
+        'menu_name' => NULL,
+        'mlid' => NULL,
+        'direction' => 'down',
+        'depth' => -1,
+        'respect_expanded' => 0,
+        'menu' => NULL,
+      ),
+      'file' => 'pronq_header_footer.theme.inc',
+    ),
+    'pronq_global_header' => array(
+      'render element' => 'elements',
+      'template' => 'templates/pronq-global-header',
+      'file' => 'pronq_header_footer.theme.inc',
+
+    ),
+    'pronq_global_footer' => array(
+      'render element' => 'elements',
+      'template' => 'templates/pronq-global-footer',
+      'file' => 'pronq_header_footer.theme.inc',
+      'variables' => array(
+          'hide_symfony' => FALSE,
+      ),
+    ),
+  );
+}
+
+/**
+ * Builds the active trail from the page's menu data.
+ *
+ * @param array $page_menu
+ *   The menu data for a page.
+ *
+ * @return mixed
+ *   An array of parent menu item ids.
+ */
+function pronq_header_footer_build_page_trail($page_menu) {
+  $trail = array();
+  foreach ($page_menu as $item) {
+    if ($item['link']['in_active_trail']) {
+      $trail[] = $item['link']['mlid'];
+    }
+    if ($item['below']) {
+      $trail = array_merge($trail, pronq_header_footer_build_page_trail($item['below']));
+    }
+  }
+  return $trail;
+}
+
+
+/**
+ * Implements hook_libraries_info().
+ */
+function pronq_header_footer_libraries_info() {
+  $libraries = array();
+  $libraries['mmenu'] = array(
+    'name' => 'Mmenu libraries',
+    'vendor url' => 'http://mmenu.frebsite.nl',
+    'download url' => 'http://mmenu.frebsite.nl/download.php',
+    'version arguments' => array(
+      'file' => 'src/js/jquery.mmenu.min.js',
+      'pattern' => '/jQuery mmenu v(\d+\.+\d+.+\d+)/',
+      'lines' => 2,
+    ),
+    'files' => array(
+      'js' => array(
+        //'src/js/jquery.mmenu.min.all.js',
+      ),
+      'css' => array(
+        //'src/css/jquery.mmenu.all.css',
+      ),
+    ),
+    //'path' => 'main',
+    'library path' => libraries_get_path('mmenu'),
+  );
+  return $libraries;
+}
+
+
+
+
+/**
+ * Implements hook_menu().
+ */
+function pronq_header_footer_menu() {
+
+   // Custom menu path which will return json output of html or associative array for the header and footer menu.
+  $items['pronq-header-footer/%/%/json'] = array(
+    'access callback'   => true,
+    'page callback'     => 'pronq_header_footer_json_output',
+    'page arguments'    => array(1,2),
+    'delivery callback' => 'drupal_json_output'
+  );
+
+  $items['admin/config/header-footer'] = array(
+    'title' => 'HP header footer Settings',
+    'description' => 'Configure header footer Settings.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('pronq_header_footer_admin_settings'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ *
+ * Implement custom delivery function to deliver the menu data along with css/js as json.
+ *
+ * @param $type
+ * @param $format
+ * @return array
+ *
+ */
+function pronq_header_footer_json_output($type, $format) {
+  $output = array();
+  if(!in_array($type, array('header', 'footer')) || !in_array($format, array('html', 'plain'))) {
+     return array('message' => t("Invalid parameters"));
+  }
+  if ($format == 'html') {
+    $files = pronq_header_footer_get_css_js();
+    $header_footer = header_footer_definitions();
+    // Logged in true is a hack to pass the submenu for angular to work its magic and hide it :)
+    $menu_output = theme('pronq_global_' . $type, array('pronq' => $header_footer, 'logged_in' => TRUE, 'hide_symfony' => TRUE,));
+    $output['menu_html'] = str_replace(array('<!-- {% verbatim %} -->', '<!-- {% endverbatim %} -->'), array('', ''), $menu_output);
+    $output['menu_html'] = str_replace(array('<!-- {% verbatim %} -->', '<!-- {% endverbatim %} -->'), array('', ''), $menu_output);
+
+    $output['css'] = $files['css'];
+    $output['js'] = $files['js'];
+  }
+  else {
+    $header_footer = header_footer_definitions();
+    if ($type == 'header') {
+      $tree = menu_tree_all_data('menu-global-header-menu');
+      $output['menu'] = pronq_header_footer_minimal_menu($tree);
+    }
+    else {
+      $tree = menu_tree_all_data('menu-global-footer-menu');
+      $output['menu'] = pronq_header_footer_minimal_menu($tree);
+    }
+  }
+  return $output;
+}
+
+/**
+ *  Implements wrapper function to get gomain name based on env GET param..
+ */
+function pronq_header_footer_get_domain_version() {
+  $query = drupal_get_query_parameters();
+  $domain = 'https://saas.hp.com';
+  if (isset($query['env']) && $query['env'] != 'prod') {
+    $domain =  'https://' . $query['env'] . '.saas.hp.com';
+  }
+  $output['domain'] = $domain;
+  $output['version'] = $query['version'];
+  return $output;
+}
+
+
+function pronq_header_footer_minimal_menu($tree) {
+  $output = array();
+  if (is_array($tree) && !empty($tree)) {
+    $domain_api_version = pronq_header_footer_get_domain_version();
+    $domain = $domain_api_version['domain'];
+    $api_version = $domain_api_version['version'];
+    foreach ($tree as $key => $menu_item) {
+      if (!$menu_item['link']['hidden']) {
+        $parent_label = trim(strtolower($menu_item['link']['link_title']));
+        $output[$parent_label]['label'] = $menu_item['link']['link_title'];
+        $output[$parent_label]['link'] = ($menu_item['link']['link_path'] != '<nolink>') ? url($menu_item['link']['link_path'], array(
+          'absolute' => TRUE,
+          'base_url' => $domain
+        )) : $menu_item['link']['link_path'];
+        if ($menu_item['link']['has_children']) {
+          foreach ($menu_item['below'] as $child_key => $child) {
+            if (!$child['link']['hidden']) {
+              $child_label = trim(preg_replace('@[^a-z0-9]+@', '-', strtolower($child['link']['link_title'])), '-');
+              // Check if no api version is provided
+              if (!isset($api_version)) {
+                if ($child_label == 'by-category' || $child_label == 'all-products') {
+                  continue;
+                }
+                if ($child['link']['has_children']) {
+                  foreach ($child['below'] as $child_key => $kid) {
+                    if (!$kid['link']['hidden']) {
+                      $kid_label = strtolower($kid['link']['link_title']);
+                      $output[$parent_label]['children'][$kid_label]['label'] = $kid['link']['link_title'];
+                      $output[$parent_label]['children'][$kid_label]['link'] = ($kid['link']['link_path'] != '<nolink>') ? url($kid['link']['link_path'], array(
+                        'absolute' => TRUE,
+                        'base_url' => $domain
+                      )) : $kid['link']['link_path'];
+                    }
+                  }
+                }
+              }
+              else {
+                $output[$parent_label]['children'][$child_label]['label'] = $child['link']['link_title'];
+                $output[$parent_label]['children'][$child_label]['link'] = ($child['link']['link_path'] != '<nolink>') ? url($child['link']['link_path'], array(
+                  'absolute' => TRUE,
+                  'base_url' => $domain
+                )) : $child['link']['link_path'];
+                if ($child['link']['has_children']) {
+                  foreach ($child['below'] as $child_key => $kid) {
+                    if (!$kid['link']['hidden']) {
+                      $kid_label = trim(strtolower($kid['link']['link_title']));
+                      $output[$parent_label]['children'][$child_label]['children'][$kid_label]['label'] = $kid['link']['link_title'];
+                      $output[$parent_label]['children'][$child_label]['children'][$kid_label]['link'] = ($kid['link']['link_path'] != '<nolink>') ? url($kid['link']['link_path'], array(
+                        'absolute' => TRUE,
+                        'base_url' => $domain
+                      )) : $kid['link']['link_path'];
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return $output;
+}
+
+/**
+ * Build a list of all css and js files required for the header/footer.
+ *
+ * @return array
+ */
+function pronq_header_footer_get_css_js() {
+  $required_files = pronq_header_footer_required_files();
+  $files = array();
+  $files['css']['header'] = pronq_header_footer_css_wrapper($required_files['header']['css']);
+  $files['css']['footer'] = pronq_header_footer_css_wrapper($required_files['footer']['css']);
+  $files['js']['header'] =  pronq_header_footer_js_wrapper($required_files['header']['js']);
+  $files['js']['footer'] =  pronq_header_footer_js_wrapper($required_files['footer']['js']);
+
+  return $files;
+}
+
+/**
+ * Wrapper function to generate css link tags.
+ *
+ * @param $files
+ * @return string
+ */
+function pronq_header_footer_css_wrapper($files) {
+  $output = '';
+  foreach($files as $path) {
+    $url = url($path, array('absolute' => FALSE));
+    $output .= '<link type="text/css" rel="stylesheet" href="' . $url . '" />';
+  }
+  return $output;
+}
+
+/**
+ * Wrapper function to generate js script tags.
+ *
+ * @param $files
+ * @return string
+ */
+function pronq_header_footer_js_wrapper($files) {
+  $output = '';
+  foreach($files as $path) {
+    $url = url($path, array('absolute' => FALSE));
+    $output .= '<script type="text/javascript" src="' . $url . '"></script>';
+  }
+  return $output;
+}
+
+/**
+ * Function to scan the header footer module dir and look for info file.
+ * Fetch all elements in the pronq array.
+ *
+ * Rebuilds data on cache flush.
+ *
+ * @return array
+ */
+function pronq_header_footer_required_files() {
+  // Drupal static holds data for current user session
+  $files = &drupal_static(__FUNCTION__);
+  // If files don't exist
+  if (!isset($files)) {
+    // Check cache table if it exist
+    if ($cache = cache_get('pronq_header_footer_files')) {
+      $files = $cache->data;
+    }
+    else {
+      // Do your expensive calculations here, and populate $files
+      // with the correct stuff..
+      $modules = drupal_system_listing("/\.info/", "modules/custom/pronq_header_footer", 'pronq', 0);
+      foreach($modules as $module) {
+        $settings = drupal_parse_info_file(dirname($module->uri) . '/' . $module->name . '.info');
+        $files = $settings['pronq'];
+      }
+      // After rebuilding the data it is saved to cache again.
+      cache_set('pronq_header_footer_files', $files, 'cache');
+    }
+  }
+  return $files;
+}
+
+/**
+ * Implements hook_preprocess_page()
+ *
+ * @param $variables
+ */
+function pronq_header_footer_preprocess_page(&$variables) {
+  global $user;
+  //libraries_load('mmenu');
+  //pronq_header_footer_responsive.css
+  drupal_add_css(drupal_get_path('module', 'pronq_header_footer') . '/pronq_header_footer.css', array('group' => CSS_THEME, 'every_page' => TRUE, 'weight' => 4000));
+  //drupal_add_css(drupal_get_path('module', 'pronq_header_footer') . '/pronq_header_footer_responsive.css', array('group' => CSS_THEME, 'every_page' => TRUE, 'weight' => 4000));
+
+  //drupal_add_css(libraries_get_path('mmenu') . '/src/css/jquery.mmenu.all.css', array('group' => CSS_THEME, 'every_page' => TRUE, 'weight' => 5000));
+  //drupal_add_js(libraries_get_path('mmenu') . '/src/js/jquery.mmenu.min.all.js', array('group' => JS_THEME, 'scope' => 'header','every_page' => TRUE, 'weight' => 900));
+  drupal_add_js(drupal_get_path('module', 'pronq_header_footer') . '/pronq_header_footer.js', array('group' => JS_THEME, 'every_page' => TRUE, 'weight' => 1000, 'scope' => 'footer'));
+
+  $header_footer = header_footer_definitions();
+  $header = theme('pronq_global_header', array('pronq' => $header_footer));
+  $firstname = "";
+  if ($user->uid > 0) {
+    $user_fields = user_load($user->uid);
+    if (isset($user_fields->field_name_first[LANGUAGE_NONE][0]['value'])) {
+      $firstname = $user_fields->field_name_first[LANGUAGE_NONE][0]['value'];
+    }
+    else {
+      $firstname = $user->name;
+    }
+  }
+
+  $username = ($user->uid > 0 ) ? "Hi, " . $firstname : "MyAccount / Sign in";
+  $accountlink = variable_get('my_account_link', '/my/account');
+
+  $header = str_replace(array('{{myaccounturl}}', '{{username}}'), array($accountlink, $username), $header);
+  $variables['pronq_header'] = str_replace(array('<!-- {% verbatim %} -->', '<!-- {% endverbatim %} -->', 'ng-show="headerStyle"', 'ng-controller="headerFooterController"'), array('', '', '', ''), $header);
+
+
+  $footer = theme('pronq_global_footer', array('pronq' => $header_footer));
+  $variables['pronq_footer'] = str_replace(array('<!-- {% verbatim %} -->', '<!-- {% endverbatim %} -->', 'ng-if="footerStyle"', 'ng-controller="headerFooterController"'), array('', '', '', ''), $footer);
+}
+
+/**
+ * Header footer definitions.
+ *
+ * @return array
+ */
+function header_footer_definitions() {
+   return  array(
+    'header' => array('id' => 'pronq-global-header', 'menu_name' => 'menu-global-header-menu', 'mlid' => 0),
+    'footer' => array('id' => 'pronq-global-footer', 'menu_name' => 'menu-global-footer-menu', 'mlid' => 0),
+  );
+}
+
+
+/**
+ * Helper function to find and render a block.
+ */
+function pronq_update_render_block_content($module, $delta) {
+  $output = '';
+  if ($block = block_load($module, $delta)) {
+    if ($build = module_invoke($module, 'block_view', $delta)) {
+      $delta = str_replace('-', '_', $delta);
+      drupal_alter(array('block_view', "block_view_{$module}_{$delta}"), $build, $block);
+
+      if (!empty($build['content'])) {
+        return is_array($build['content']) ? render($build['content']) : $build['content'];
+      }
+    }
+  }
+  return $output;
+}
+
+
+
+function pronq_header_footer_admin_settings() {
+  $form['header_footer_logo_link'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Logo Link'),
+    '#default_value' => variable_get('header_footer_logo_link', '<front>'),
+    '#description' => t('Logo Link'),
+    '#element_validate' => array('pronq_header_footer_validate_url'),
+  );
+  return system_settings_form($form);
+}
+
+/**
+ * Form validation callback to provide loose validation for URLs.
+ *
+ * @see: hp_sso_admin_settings()
+ */
+function pronq_header_footer_validate_url($element, &$form_state, $form) {
+  if (!empty($element['#value']) && !drupal_valid_path($element['#value'])) {
+    form_error($element, t('The URL entered in "@field" does not appear to be valid.', array('@field' => $element['#title'])));
+  }
+}

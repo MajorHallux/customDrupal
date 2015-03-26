@@ -1,0 +1,447 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: seanschoolcraft
+ * Date: 6/10/14
+ * Time: 1:30 PM
+ */
+
+/**
+ * Implements hook_views_api().
+ */
+function pronq_moderation_views_api() {
+    return array(
+        'api' => 3,
+        'path' => drupal_get_path('module', 'pronq_moderation'),
+        'template path' => drupal_get_path('module', 'pronq_moderation'),
+    );
+}
+
+/**
+ * Create permission to edit moderation email settings.
+ * @return array
+ */
+function pronq_moderation_permission() {
+    return array(
+        'administer moderation emails' => array(
+            'title' => t('Administer Moderation Email Settings'),
+            'description' => t('Perform administration tasks for email moderation settings.'),
+        ),
+    );
+}
+
+/**
+ * @param $form
+ * @param $form_state
+ * @param $form_id
+ * Alter forms to view moderation email settings at node and node_type levels.
+ */
+function pronq_moderation_form_node_type_form_alter(&$form, &$form_state, $form_id) {
+    global $user;
+
+   //modify the node type edit form
+    if( user_access('administer moderation emails',$user)){
+        pronq_moderation_email_form($form, $form_state);
+        $form['#submit'][] = 'pronq_moderation_save_email_values_type';
+    }
+
+}
+
+//call the same form above to add to it and create new submit handler.
+function pronq_moderation_form_node_form_alter(&$form, &$form_state, $form_id) {
+    global $user;
+
+    //modify the node type edit form
+    if( user_access('administer moderation emails',$user)){
+        pronq_moderation_email_form($form, $form_state);
+        $form['#submit'][] = 'pronq_moderation_save_email_values_node';
+    }
+}
+
+/**
+ * @param $nid the nid of the node you want emails for
+ * @return mixed array of the email addresses keyed to their type
+ */
+function get_node_default_emails($nid){
+  $email_defaults = array();
+    $result = db_select('node_moderation_emails','e')
+        ->fields('e',array('data'))
+        ->condition('nid',$nid)
+        ->execute()
+        ->fetchAssoc();
+    $emails = unserialize($result['data']);
+    if(!empty($emails)){
+        foreach($emails as $record){
+            $email_defaults[$record['type']] = $record['data'];
+        }
+    }
+    return $email_defaults;
+}
+/**
+ * @param $form
+ * @param $form_state
+ * Define moderation email form fields
+ */
+function pronq_moderation_email_form(&$form, &$form_state){
+
+    if($form['#node_edit_form'] == TRUE){
+       $nid = $form['nid']['#value'];
+        $email_defaults = get_node_default_emails($nid);
+    }
+    else{
+        $node_type = $form['#node_type']->type;
+        $email_defaults = variable_get($node_type.'_moderation_emails');
+    }
+
+
+
+    //add form fieldset and fields for the moderation email recipients
+
+    $form['moderation_emails'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('Moderation Email settings'),
+        '#group' => 'additional_settings',
+        '#weight' => 2,
+        '#collapsible' => TRUE,
+        '#collapsed' => FALSE,
+        '#tree' => TRUE,
+    );
+
+    //add fields for the moderation emails
+    $form['moderation_emails']['pm_notify'] = array(
+        '#type' => 'textfield',
+        '#title' => t('PM Approval Email'),
+        '#default_value' => $email_defaults['pm_notify'],
+        '#size' => 60,
+        '#maxlength' => 128,
+        '#required' => FALSE,
+    );
+    $form['moderation_emails']['design_notify'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Design Review Email'),
+        '#default_value' => $email_defaults['design_notify'],
+        '#size' => 60,
+        '#maxlength' => 128,
+        '#required' => FALSE,
+    );
+    $form['moderation_emails']['content_notify'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Content Review Email'),
+        '#default_value' => $email_defaults['content_notify'],
+        '#size' => 60,
+        '#maxlength' => 128,
+        '#required' => FALSE,
+    );
+    $form['moderation_emails']['publish_notify'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Publish Notification Email'),
+        '#default_value' => $email_defaults['publish_notify'],
+        '#size' => 60,
+        '#maxlength' => 128,
+        '#required' => FALSE,
+    );
+    $form['moderation_emails']['translation_notify'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Translation Team Email'),
+        '#default_value' => $email_defaults['translation_notify'],
+        '#size' => 60,
+        '#maxlength' => 128,
+        '#required' => FALSE,
+    );
+}
+
+function pronq_moderation_save_email_values_type($formID, &$form_state){
+
+    //save the node type email values to a node type specific variable array
+    if(!is_multiArrayEmpty($form_state['values']['moderation_emails'])) {
+        $values = array();
+        foreach($form_state['values']['moderation_emails'] as $key => $value){
+            $values[$key] = $value;
+        }
+
+        variable_set($form_state['values']['type'].'_moderation_emails',$values);
+    }
+
+}
+function pronq_moderation_save_email_values_node($formID, &$form_state){
+
+   //save the settings at a per node level to our custom table
+    if(!is_multiArrayEmpty($form_state['values']['moderation_emails'])) {
+        $nid = $form_state['values']['nid'];
+
+        //clear out previous settings
+        $num_deleted = db_delete('node_moderation_emails')
+            ->condition('nid', $nid)
+            ->execute();
+        //build array of values to insert
+
+        $values = array();
+        foreach($form_state['values']['moderation_emails'] as $key => $value){
+            $values[] = array(
+                'nid' => $nid,
+                'type' => $key,
+                'data' => $value,
+            );
+
+        }
+        $email_save = db_insert('node_moderation_emails')
+            ->fields(array(
+                'nid' => $nid,
+                'data' => serialize($values),
+            ));
+
+        $email_save->execute();
+    }
+
+}
+/**
+ * Provide information about our custom placeholder/token.
+ *
+ * @see httx://api.drupal.org/api/drupal/modules--system--system.api.php/function/hook_token_info/7
+ * @see httx://api.lullabot.com/token_example_token_info/7
+ * @return array
+ *   An associative array of available tokens and token types.
+ */
+function pronq_moderation_token_info() {
+    $info['tokens']['node']['pm_notify'] = array(
+        'name' => t('PM Approval email'),
+        'description' => t('Email address to be notified when PM Approval is needed.'),
+    );
+    $info['tokens']['node']['design_notify'] = array(
+        'name' => t('Design notification email'),
+        'description' => t('Email address to be notified when Design Review is needed.'),
+    );
+    $info['tokens']['node']['content_notify'] = array(
+        'name' => t('PM Approval email'),
+        'description' => t('Email address to be notified when Content Reivew is needed.'),
+    );
+    $info['tokens']['node']['publish_notify'] = array(
+        'name' => t('PM Approval email'),
+        'description' => t('Email address to be notified when content is Published.'),
+    );
+    $info['tokens']['node']['translation_notify'] = array(
+        'name' => t('Translation Team Email'),
+        'description' => t('Email address to be notified when content is ready to be translated.'),
+    );
+    return $info;
+}
+
+/**
+ * Provide replacement values for placeholder tokens.
+ *
+ * @see httx://api.drupal.org/api/drupal/modules--system--system.api.php/function/hook_tokens/7
+ * @see httx://api.lullabot.com/token_example_tokens/7
+ * @param string $type
+ *   The machine-readable name of the type (group) of token being replaced, such
+ *   as 'node', 'user', or another type defined by a hook_token_info()
+ *   implementation.
+ * @param array $tokens
+ *   An array of tokens to be replaced. The keys are the machine-readable token
+ *   names, and the values are the raw [type:token] strings that appeared in the
+ *   original text.
+ * @param array $data (optional)
+ *   An associative array of data objects to be used when generating replacement
+ *   values, as supplied in the $data parameter to token_replace().
+ * @param array $options (optional)
+ *   An associative array of options for token replacement; see token_replace()
+ *   for possible values.
+ * @return array
+ *   An associative array of replacement values, keyed by the raw [type:token]
+ *   strings from the original text.
+ */
+function pronq_moderation_tokens($type, $tokens, array $data = array(), array $options = array()) {
+    $replacements = array();
+    $sanitize = !empty($options['sanitize']);
+    if ($type == 'node' && !empty($data['node'])) {
+        $node = $data['node'];
+        $email_defaults = get_node_default_emails($node->nid);
+        if(empty($email_defaults)){
+            $email_defaults = variable_get($node->type.'_moderation_emails');
+        }
+
+        foreach ($tokens as $name => $original) {
+            switch ($name) {
+                case 'pm_notify' :
+                case 'design_notify':
+                case 'content_notify':
+                case 'publish_notify':
+                case 'translation_notify':
+                    $replacements[$original] = !empty($email_defaults[$name]) ? $email_defaults[$name] : 'sean.schoolcraft@hp.com';
+                    break;
+            }
+        }
+    }
+    return $replacements;
+}
+
+/**
+ * helper function for checking if multi dimensional array is empty
+ */
+function is_multiArrayEmpty($multiarray) {
+    if(is_array($multiarray) and !empty($multiarray)){
+        $tmp = array_shift($multiarray);
+        if(!is_multiArrayEmpty($multiarray) or !is_multiArrayEmpty($tmp)){
+            return false;
+        }
+        return true;
+    }
+    if(empty($multiarray)){
+        return true;
+    }
+    return false;
+}
+
+function pronq_moderation_entity_info_alter(&$entity_info) {
+    $entity_info['node']['inline entity form'] = array(
+        'controller' => 'PronqNodeInlineEntityFormController',
+    );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function pronq_moderation_field_formatter_info() {
+    return array(
+        'pronq_moderation_entity_view' => array(
+            'label' => t('Pronq Rendered entity'),
+            'description' => t('Display the referenced entities rendered by entity_view() with correct moderation revision.'),
+            'field types' => array('entityreference'),
+            'settings' => array(
+                'view_mode' => '',
+                'links' => TRUE,
+            ),
+        ),
+    );
+}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+function pronq_moderation_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+    $display = $instance['display'][$view_mode];
+    $settings = $display['settings'];
+
+
+    if ($display['type'] == 'pronq_moderation_entity_view') {
+        $entity_info = entity_get_info($field['settings']['target_type']);
+        $options = array();
+        if (!empty($entity_info['view modes'])) {
+            foreach ($entity_info['view modes'] as $view_mode => $view_mode_settings) {
+                $options[$view_mode] = $view_mode_settings['label'];
+            }
+        }
+
+        if (count($options) > 1) {
+            $element['view_mode'] = array(
+                '#type' => 'select',
+                '#options' => $options,
+                '#title' => t('View mode'),
+                '#default_value' => $settings['view_mode'],
+            );
+        }
+
+        $element['links'] = array(
+            '#type' => 'checkbox',
+            '#title' => t('Show links'),
+            '#default_value' => $settings['links'],
+        );
+    }
+
+    return $element;
+}
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+function pronq_moderation_field_formatter_settings_summary($field, $instance, $view_mode) {
+    $display = $instance['display'][$view_mode];
+    $settings = $display['settings'];
+
+    $summary = array();
+
+
+
+    if ($display['type'] == 'pronq_moderation_entity_view') {
+        $entity_info = entity_get_info($field['settings']['target_type']);
+        $summary[] = t('Rendered as @mode', array('@mode' => isset($entity_info['view modes'][$settings['view_mode']]['label']) ? $entity_info['view modes'][$settings['view_mode']]['label'] : $settings['view_mode']));
+        $summary[] = !empty($settings['links']) ? t('Display links') : t('Do not display links');
+    }
+
+    return implode('<br />', $summary);
+}
+
+function pronq_moderation_field_formatter_prepare_view($entity_type, $entities, $field, $instances, $langcode, &$items, $displays){
+     entityreference_field_formatter_prepare_view($entity_type, $entities, $field, $instances, $langcode, $items, $displays);
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function pronq_moderation_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+    $result = array();
+    $settings = $display['settings'];
+
+    // Rebuild the items list to contain only those with access.
+    foreach ($items as $key => $item) {
+        if (empty($item['access'])) {
+            unset($items[$key]);
+        }
+    }
+
+    switch ($display['type']) {
+
+        case 'pronq_moderation_entity_view':
+            foreach ($items as $delta => $item) {
+                // Protect ourselves from recursive rendering.
+                static $depth = 0;
+                $depth++;
+                if ($depth > 20) {
+                    throw new EntityReferenceRecursiveRenderingException(t('Recursive rendering detected when rendering entity @entity_type(@entity_id). Aborting rendering.', array('@entity_type' => $entity_type, '@entity_id' => $item['target_id'])));
+                }
+
+                #dsm($item['entity']);
+                if (arg(2) === 'draft'  && isset($item['entity']->workbench_moderation['current']->vid)) {
+                    // Ensure that we will return the current revision
+                    if ($item['entity']->vid != $item['entity']->workbench_moderation['current']->vid) {
+                        $item['entity'] = node_load($item['entity']->nid, $item['entity']->workbench_moderation['current']->vid);
+                    }
+                }
+                $entity = clone $item['entity'];
+                unset($entity->content);
+
+                $result[$delta] = entity_view($field['settings']['target_type'], array($item['target_id'] => $entity), $settings['view_mode'], $langcode, FALSE);
+
+                if (empty($settings['links']) && isset($result[$delta][$field['settings']['target_type']][$item['target_id']]['links'])) {
+                    $result[$delta][$field['settings']['target_type']][$item['target_id']]['links']['#access'] = FALSE;
+                }
+                $depth = 0;
+            }
+            break;
+    }
+
+    return $result;
+}
+
+/**
+ * Implements hook_node_presave
+ */
+function pronq_moderation_node_presave($node) {
+    //handle transforming product and pricing codes for API to lower with no spaces
+    if ($node->type == 'pricing_page_content') {
+        $node->field_product_code['und'][0]['value'] = strtolower(str_replace(" ", "-", $node->field_product_code['und'][0]['value']));
+    }
+    if ($node->type == 'pricing_block') {
+        $node->field_product_code['und'][0]['value'] = strtolower(str_replace(" ", "_", $node->field_product_code['und'][0]['value']));
+
+        //update comp rows to use TRUE and nothing else if meant to be boolean
+        foreach($node->field_row_values['und'] as $compRow){
+            $string = strtolower($compRow['field_value_value']);
+            if ($string == 'no' || $string == 'false'){
+                $compRow['field_value_value'] = '';
+            }
+            if($string == 'true' || $string == 'yes' ){
+                $compRow['field_value_value'] = "TRUE";
+            }
+        }
+    }
+}

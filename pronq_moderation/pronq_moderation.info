@@ -1,0 +1,12 @@
+name = HP Pronq Moderation
+description = Management module for moderation related modifications.
+core = 7.x
+package = Pronq
+version = 7.x-1.0
+dependencies[] = entity
+dependencies[] = rules
+dependencies[] = workbench_moderation
+dependencies[] = pronq_update
+dependencies[] = inline_entity_form
+dependencies[] = entityreference
+files[] = pronq_moderation_node_inline_entity_form.inc
